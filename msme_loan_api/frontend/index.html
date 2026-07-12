@@ -112,6 +112,36 @@
 
     .metric .label { color: var(--muted); font-size: 0.82rem; }
     .metric .value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; }
+    .metric .value.compact { font-size: 1rem; line-height: 1.25; word-break: break-word; }
+
+    .gate-badge {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      max-width: 100%;
+      white-space: normal;
+    }
+
+    .gate-approved {
+      background: #ecfdf3;
+      color: #067647;
+      border-color: #abefc6;
+    }
+
+    .gate-warn {
+      background: #fffaeb;
+      color: #b54708;
+      border-color: #fedf89;
+    }
+
+    .gate-retry {
+      background: #fef3f2;
+      color: #b42318;
+      border-color: #fecdca;
+    }
 
     .section {
       border-top: 1px solid #eaecf0;
@@ -138,6 +168,20 @@
       if (decision.toLowerCase().includes("approve") && !decision.toLowerCase().includes("conditional")) return "pill approve";
       if (decision.toLowerCase().includes("conditional")) return "pill conditional";
       return "pill reject";
+    }
+
+    function gateStatusDisplay(status) {
+      const raw = (status || '').toUpperCase();
+      if (raw === 'APPROVED') {
+        return { label: 'Approved', cls: 'gate-badge gate-approved' };
+      }
+      if (raw === 'APPROVED_WITH_WARNINGS') {
+        return { label: 'Approved (Warnings)', cls: 'gate-badge gate-warn' };
+      }
+      if (raw === 'RETRY_REQUIRED') {
+        return { label: 'Retry Required', cls: 'gate-badge gate-retry' };
+      }
+      return { label: status || '-', cls: 'gate-badge gate-warn' };
     }
 
     function App() {
@@ -189,6 +233,7 @@
       }
 
       const decision = result?.decision || '';
+      const gate = gateStatusDisplay(result?.judge_gate_status);
 
       return e('div', { className: 'layout' },
         e('aside', { className: 'sidebar' },
@@ -217,7 +262,10 @@
             ),
             e('div', { className: 'grid', style: { marginTop: '12px' } },
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Risk Score'), e('div', { className: 'value' }, String(result.risk_score || '-'))),
-              e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Judge Gate'), e('div', { className: 'value' }, String(result.judge_gate_status || '-'))),
+              e('div', { className: 'metric' },
+                e('div', { className: 'label' }, 'Judge Gate'),
+                e('div', { className: 'value compact' }, e('span', { className: gate.cls }, gate.label))
+              ),
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Pass Sections'), e('div', { className: 'value' }, String(result.summary?.pass_count ?? '-'))),
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Needs Review'), e('div', { className: 'value' }, String(result.summary?.needs_review_count ?? '-'))),
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'High Risk'), e('div', { className: 'value' }, String(result.summary?.high_risk_count ?? '-')))
