@@ -99,7 +99,7 @@ class LoanApplicationRequest(BaseModel):
 
     class Config:
         use_enum_values = True
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "annual_income"           : 45000,
                 "emp_length"              : 3,

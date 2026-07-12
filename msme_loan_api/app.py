@@ -9,12 +9,15 @@ import joblib
 import shap
 import numpy   as np
 import pandas  as pd
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from datetime  import datetime
-from fastapi   import FastAPI, HTTPException, Request, status
+from fastapi   import FastAPI, HTTPException, Request, UploadFile, File, status
 from fastapi.middleware.cors        import CORSMiddleware
 from fastapi.middleware.gzip        import GZipMiddleware
-from fastapi.responses              import JSONResponse
+from fastapi.responses              import JSONResponse, FileResponse
+from fastapi.staticfiles            import StaticFiles
 from contextlib                     import asynccontextmanager
 
 from schemas.loan_schema  import (
@@ -28,12 +31,14 @@ from schemas.loan_schema  import (
     ShapExplanation
 )
 from services.prediction  import encode_application, run_shap_explanation
+from services.prediction  import GRADE_MAP, VERIFY_MAP
 from utils.health_card    import (
     compute_health_card,
     get_risk_band,
     get_decision,
     compute_loan_offer
 )
+from graph.workflow import run_assessment_workflow, bootstrap_policy_index, get_retrieval_backend
 
 # ============================================================
 # GLOBAL MODEL STORE
@@ -45,6 +50,14 @@ model_store = {
     "metadata" : None,
     "explainer": None,
 }
+
+BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR / "frontend"
+UPLOADS_DIR = BASE_DIR / "uploads"
+POLICIES_DIR = BASE_DIR / "knowledge_base" / "policies"
+
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+POLICIES_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
 # LIFESPAN — Load Model on Startup
@@ -71,6 +84,10 @@ async def lifespan(app: FastAPI):
         print(f"✅ Total features   : {meta['n_features']}")
         print(f"✅ API ready        : http://localhost:8000")
         print(f"✅ Swagger docs     : http://localhost:8000/docs")
+
+        # Prime policy retrieval index for RAG assessment flow.
+        indexed_count = bootstrap_policy_index(POLICIES_DIR)
+        print(f"✅ Policy chunks    : {indexed_count}")
 
     except FileNotFoundError as e:
         print(f"❌ Model file not found: {e}")
@@ -113,6 +130,9 @@ app = FastAPI(
     docs_url    = "/docs",
     redoc_url   = "/redoc"
 )
+
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR)), name="assets")
 
 # ============================================================
 # MIDDLEWARE
@@ -218,11 +238,6 @@ def _predict_single(app_request: LoanApplicationRequest) -> dict:
 
 
 
-
-
-@app.get("/")
-async def home():
-    return {"status": "success", "message": "Model is deployed successfully"}    
 
 
 # ============================================================
@@ -411,7 +426,6 @@ async def get_health_card(application: LoanApplicationRequest):
         emi_ratio = round(application.installment / (application.annual_income / 12), 4) \
                     if application.annual_income > 0 else 0
 
-        from utils.health_card import GRADE_MAP, VERIFY_MAP
         health_input = {
             
             'grade_encoded'              : GRADE_MAP.get(application.grade.lower(), 3),
@@ -583,6 +597,67 @@ async def predict_summary(batch: BatchLoanRequest):
 
 
 # ============================================================
+# ROUTE 8: Agentic RAG Assessment
+# ============================================================
+
+@app.post(
+    "/rag/policies/reload",
+    tags        = ["RAG"],
+    summary     = "Reload policy knowledge base",
+    description = "Reload and re-index policy documents from knowledge_base/policies."
+)
+async def rag_reload_policies():
+    count = bootstrap_policy_index(POLICIES_DIR)
+    return {
+        "status": "ok",
+        "policy_chunks": count,
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+
+
+@app.post(
+    "/rag/analyze",
+    tags        = ["RAG"],
+    summary     = "Analyze applicant PDF using Agentic RAG",
+    description = "Uploads an applicant PDF, runs retrieval + analysis + judge workflow, and returns decision with evidence."
+)
+async def rag_analyze_pdf(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    with NamedTemporaryFile(delete=False, suffix=".pdf", dir=str(UPLOADS_DIR)) as temp_file:
+        content = await file.read()
+        temp_file.write(content)
+        temp_path = Path(temp_file.name)
+
+    try:
+        result = run_assessment_workflow(temp_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RAG analysis failed: {str(e)}")
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+
+@app.get(
+    "/rag/health",
+    tags        = ["RAG"],
+    summary     = "RAG workflow health",
+    description = "Returns simple status for RAG workflow availability."
+)
+async def rag_health():
+    return {
+        "status": "healthy",
+        "workflow": "LangGraph",
+        "retrieval_backend": get_retrieval_backend(),
+        "policy_dir": str(POLICIES_DIR),
+        "upload_dir": str(UPLOADS_DIR),
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+
+
+# ============================================================
 # GLOBAL EXCEPTION HANDLER
 # ============================================================
 
@@ -624,9 +699,21 @@ async def root():
             "POST /predict/summary" : "Portfolio risk summary statistics",
             "POST /health-card"     : "Financial Health Card only",
             "POST /explain"         : "SHAP explainability only",
+            "POST /rag/policies/reload": "Reload policy knowledge base",
+            "POST /rag/analyze"     : "Agentic RAG analysis for applicant PDF",
+            "GET  /rag/health"      : "RAG workflow health check",
+            "GET  /dashboard"       : "Frontend dashboard",
         },
         "timestamp"   : datetime.utcnow().isoformat() + "Z"
     }
+
+
+@app.get("/dashboard", tags=["UI"], summary="Dashboard")
+async def dashboard():
+    index_path = FRONTEND_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="Dashboard not found.")
+    return FileResponse(index_path)
 
 
 # ============================================================
@@ -636,7 +723,7 @@ async def root():
 # if __name__ == "__main__":
 #     import uvicorn
 #     uvicorn.run(
-#         "main:app",
+#         "app:app",
 #         host        = "0.0.0.0",
 #         port        = 8000,
 #         reload      = True,       # Set False in production
