@@ -1,8 +1,13 @@
+def _normalize_evidence(text: str) -> str:
+    return " ".join(text.lower().split())[:220]
+
+
 def judge_reasoning(analysis: dict) -> dict:
     """Judge node validates evidence coverage and consistency."""
     sections = analysis.get("sections", {})
     missing_evidence = []
     low_confidence = []
+    repeated_evidence_sections = set()
 
     for section, result in sections.items():
         evidence = result.get("evidence", [])
@@ -18,12 +23,33 @@ def judge_reasoning(analysis: dict) -> dict:
         if result.get("status") == "PASS" and "risk" in result.get("reason", "").lower():
             contradictions.append(section)
 
-    approved = len(missing_evidence) == 0 and len(low_confidence) <= 1 and len(contradictions) == 0
+    evidence_to_sections: dict[str, set[str]] = {}
+    for section, result in sections.items():
+        for ev in result.get("evidence", []):
+            key = _normalize_evidence(ev)
+            if not key:
+                continue
+            evidence_to_sections.setdefault(key, set()).add(section)
+
+    for sec_set in evidence_to_sections.values():
+        # If the same evidence snippet supports many sections,
+        # section grounding is weak and should not pass the judge gate.
+        if len(sec_set) >= 3:
+            repeated_evidence_sections.update(sec_set)
+
+    approved = (
+        len(missing_evidence) == 0
+        and len(low_confidence) <= 1
+        and len(contradictions) == 0
+        and len(repeated_evidence_sections) == 0
+    )
 
     return {
         "approved": approved,
+        "gate_status": "APPROVED" if approved else "RETRY_REQUIRED",
         "missing_evidence": missing_evidence,
         "low_confidence_sections": low_confidence,
         "contradictions": contradictions,
+        "repeated_evidence_sections": sorted(repeated_evidence_sections),
         "reason": "Reasoning approved" if approved else "Reasoning needs corrective retrieval",
     }

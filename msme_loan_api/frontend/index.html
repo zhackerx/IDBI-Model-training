@@ -217,6 +217,7 @@
             ),
             e('div', { className: 'grid', style: { marginTop: '12px' } },
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Risk Score'), e('div', { className: 'value' }, String(result.risk_score || '-'))),
+              e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Judge Gate'), e('div', { className: 'value' }, String(result.judge_gate_status || '-'))),
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Pass Sections'), e('div', { className: 'value' }, String(result.summary?.pass_count ?? '-'))),
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Needs Review'), e('div', { className: 'value' }, String(result.summary?.needs_review_count ?? '-'))),
               e('div', { className: 'metric' }, e('div', { className: 'label' }, 'High Risk'), e('div', { className: 'value' }, String(result.summary?.high_risk_count ?? '-')))

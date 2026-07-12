@@ -32,6 +32,14 @@ SECTION_QUERIES = {
     "bank_details": "bank statement cash flow bounce average balance",
 }
 
+SECTION_TERMS = {
+    "income_tax": ["itr", "income tax", "return", "tax"],
+    "gst": ["gst", "gstr", "turnover"],
+    "credit_history": ["cibil", "credit", "dpd", "delinqu"],
+    "existing_loans": ["loan", "emi", "liabilit", "debt"],
+    "bank_details": ["bank", "cash flow", "balance", "bounce"],
+}
+
 
 RAG_BACKEND = os.getenv("RAG_BACKEND", "tfidf").strip().lower()
 CHROMA_DIR = Path(os.getenv("CHROMA_PERSIST_DIR", Path(__file__).resolve().parents[1] / "chroma_db"))
@@ -59,6 +67,33 @@ def _to_dict_chunks(chunks: list[RetrievedChunk]) -> list[dict]:
         }
         for chunk in chunks
     ]
+
+
+def _norm_text(text: str) -> str:
+    return " ".join(text.lower().split())[:240]
+
+
+def _section_retrieval(section: str, app_hits: list[RetrievedChunk], pol_hits: list[RetrievedChunk]) -> list[dict]:
+    terms = SECTION_TERMS.get(section, [])
+
+    # Combine and sort by relevance, then deduplicate by normalized text.
+    combined = sorted(app_hits + pol_hits, key=lambda c: c.score, reverse=True)
+    unique: list[RetrievedChunk] = []
+    seen = set()
+    for chunk in combined:
+        key = _norm_text(chunk.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(chunk)
+
+    def is_relevant(chunk: RetrievedChunk) -> bool:
+        text = chunk.text.lower()
+        return any(term in text for term in terms)
+
+    relevant = [c for c in unique if is_relevant(c)]
+    selected = relevant[:4] if relevant else unique[:4]
+    return _to_dict_chunks(selected)
 
 
 def bootstrap_policy_index(policy_dir: Path) -> int:
@@ -94,9 +129,9 @@ def _retrieve_node(state: WorkflowState) -> WorkflowState:
 
     retrieved = {}
     for section, query in SECTION_QUERIES.items():
-        app_hits = applicant_retriever.search(query, top_k=3)
-        pol_hits = _policy_retriever.search(query, top_k=3)
-        retrieved[section] = _to_dict_chunks(app_hits + pol_hits)
+        app_hits = applicant_retriever.search(query, top_k=6)
+        pol_hits = _policy_retriever.search(query, top_k=6)
+        retrieved[section] = _section_retrieval(section, app_hits, pol_hits)
 
     return {
         "applicant_retriever": applicant_retriever,
@@ -119,9 +154,9 @@ def _corrective_node(state: WorkflowState) -> WorkflowState:
     retrieved = {}
     diagnostics = {}
     for section, query in SECTION_QUERIES.items():
-        app_hits, diag = corrective_retrieve(applicant_retriever, query, top_k=4)
-        pol_hits, _ = corrective_retrieve(_policy_retriever, query, top_k=3)
-        retrieved[section] = _to_dict_chunks(app_hits + pol_hits)
+        app_hits, diag = corrective_retrieve(applicant_retriever, query, top_k=8)
+        pol_hits, _ = corrective_retrieve(_policy_retriever, query, top_k=6)
+        retrieved[section] = _section_retrieval(section, app_hits, pol_hits)
         diagnostics[section] = diag
 
     return {
@@ -142,18 +177,27 @@ def _route_after_judge(state: WorkflowState) -> str:
 def _finalize_node(state: WorkflowState) -> WorkflowState:
     analysis = state.get("analysis", {})
     summary = analysis.get("summary", {})
+    judge = state.get("judge", {})
 
     if summary.get("high_risk_count", 0) > 0:
-        decision = "Reject"
-        risk_score = 82
+        base_decision = "Reject"
+        base_risk_score = 82
     elif summary.get("needs_review_count", 0) > 0:
-        decision = "Conditional Approval"
-        risk_score = 63
+        base_decision = "Conditional Approval"
+        base_risk_score = 63
     else:
-        decision = "Approve"
-        risk_score = 28
+        base_decision = "Approve"
+        base_risk_score = 28
 
-    confidence = 0.9 if state.get("judge", {}).get("approved") else 0.72
+    # Judge is a reasoning-quality gate. If it fails, force human review.
+    if not judge.get("approved", False):
+        decision = "Manual Review"
+        risk_score = max(base_risk_score, 70 if summary.get("high_risk_count", 0) > 0 else 55)
+    else:
+        decision = base_decision
+        risk_score = base_risk_score
+
+    confidence = 0.9 if judge.get("approved") else 0.72
 
     evidence = []
     for section, result in analysis.get("sections", {}).items():
@@ -162,11 +206,13 @@ def _finalize_node(state: WorkflowState) -> WorkflowState:
 
     final = {
         "decision": decision,
+        "base_decision": base_decision,
         "risk_score": risk_score,
         "confidence": confidence,
         "summary": analysis.get("summary", {}),
         "sections": analysis.get("sections", {}),
-        "judge": state.get("judge", {}),
+        "judge": judge,
+        "judge_gate_status": judge.get("gate_status", "UNKNOWN"),
         "evidence": evidence[:8],
         "corrective_diagnostics": state.get("corrective_diagnostics", {}),
     }
