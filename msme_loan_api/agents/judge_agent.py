@@ -41,12 +41,22 @@ def judge_reasoning(analysis: dict) -> dict:
         len(missing_evidence) == 0
         and len(low_confidence) <= 1
         and len(contradictions) == 0
-        and len(repeated_evidence_sections) == 0
     )
+
+    if not approved:
+        gate_status = "RETRY_REQUIRED"
+        quality_score = 0.72
+    elif repeated_evidence_sections:
+        gate_status = "APPROVED_WITH_WARNINGS"
+        quality_score = 0.82
+    else:
+        gate_status = "APPROVED"
+        quality_score = 0.90
 
     return {
         "approved": approved,
-        "gate_status": "APPROVED" if approved else "RETRY_REQUIRED",
+        "gate_status": gate_status,
+        "quality_score": quality_score,
         "missing_evidence": missing_evidence,
         "low_confidence_sections": low_confidence,
         "contradictions": contradictions,

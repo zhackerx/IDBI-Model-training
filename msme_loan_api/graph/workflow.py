@@ -197,7 +197,7 @@ def _finalize_node(state: WorkflowState) -> WorkflowState:
         decision = base_decision
         risk_score = base_risk_score
 
-    confidence = 0.9 if judge.get("approved") else 0.72
+    confidence = float(judge.get("quality_score", 0.72))
 
     evidence = []
     for section, result in analysis.get("sections", {}).items():

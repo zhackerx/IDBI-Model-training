@@ -37,11 +37,14 @@ def _count_negative_hits(text: str, markers: list[str]) -> int:
             continue
 
         # Skip when a marker is explicitly negated in nearby phrase.
+        # Handles variants such as: no defaults, no settlements, not written off.
+        marker_first = re.escape(marker_l.split()[0])
         negation_patterns = [
-            rf"\bno\s+{re.escape(marker_l)}\b",
-            rf"\bnot\s+{re.escape(marker_l)}\b",
-            rf"\bwithout\s+{re.escape(marker_l)}\b",
-            rf"\bzero\s+{re.escape(marker_l)}\b",
+            rf"\bno\s+{re.escape(marker_l)}s?\b",
+            rf"\bnot\s+{re.escape(marker_l)}s?\b",
+            rf"\bwithout\s+{re.escape(marker_l)}s?\b",
+            rf"\bzero\s+{re.escape(marker_l)}s?\b",
+            rf"\b(no|not|without|zero)\b(?:\W+\w+){{0,2}}\W+{marker_first}\w*",
         ]
         if any(re.search(pattern, text_l) for pattern in negation_patterns):
             continue
