@@ -1,4 +1,5 @@
 from collections import Counter
+import re
 
 
 SECTION_RULES = {
@@ -25,12 +26,48 @@ SECTION_RULES = {
 }
 
 
+def _count_negative_hits(text: str, markers: list[str]) -> int:
+    """Count risk markers while ignoring simple negations like 'no default'."""
+    hits = 0
+    text_l = text.lower()
+
+    for marker in markers:
+        marker_l = marker.lower()
+        if marker_l not in text_l:
+            continue
+
+        # Skip when a marker is explicitly negated in nearby phrase.
+        negation_patterns = [
+            rf"\bno\s+{re.escape(marker_l)}\b",
+            rf"\bnot\s+{re.escape(marker_l)}\b",
+            rf"\bwithout\s+{re.escape(marker_l)}\b",
+            rf"\bzero\s+{re.escape(marker_l)}\b",
+        ]
+        if any(re.search(pattern, text_l) for pattern in negation_patterns):
+            continue
+
+        hits += 1
+
+    return hits
+
+
 def _section_assessment(section_name: str, evidence_chunks: list[dict]) -> dict:
     rules = SECTION_RULES[section_name]
-    text_blob = " ".join([c["text"] for c in evidence_chunks]).lower()
+
+    applicant_text = " ".join(
+        [c.get("text", "") for c in evidence_chunks if c.get("metadata", {}).get("type") == "applicant"]
+    ).lower()
+    policy_text = " ".join(
+        [c.get("text", "") for c in evidence_chunks if c.get("metadata", {}).get("type") == "policy"]
+    ).lower()
+    text_blob = (applicant_text + " " + policy_text).strip()
 
     keyword_hits = sum(1 for k in rules["keywords"] if k in text_blob)
-    negative_hits = sum(1 for k in rules["negative"] if k in text_blob)
+
+    # Critical: evaluate risk markers from applicant evidence only.
+    # Policy chunks naturally contain words like "default" and should not
+    # by themselves increase applicant risk.
+    negative_hits = _count_negative_hits(applicant_text, rules["negative"])
 
     if keyword_hits == 0:
         status = "NEEDS_REVIEW"
