@@ -217,11 +217,31 @@
         const form = new FormData();
         form.append('file', file);
 
+        function normalizeApiError(payload) {
+          const detail = payload?.detail;
+          if (typeof detail === 'string') return detail;
+          if (Array.isArray(detail)) return detail.join(', ');
+          if (detail && Array.isArray(detail.errors)) return detail.errors.join(' ');
+          if (detail && typeof detail === 'object') {
+            try {
+              return JSON.stringify(detail);
+            } catch {
+              return 'Request failed';
+            }
+          }
+          return payload?.message || 'Analysis failed';
+        }
+
         try {
           const res = await fetch('/rag/analyze', { method: 'POST', body: form });
           if (!res.ok) {
-            const payload = await res.json();
-            throw new Error(payload.detail || 'Analysis failed');
+            let payload = null;
+            try {
+              payload = await res.json();
+            } catch {
+              // Keep a stable fallback for non-JSON error responses.
+            }
+            throw new Error(normalizeApiError(payload));
           }
           const data = await res.json();
           setResult(data);
