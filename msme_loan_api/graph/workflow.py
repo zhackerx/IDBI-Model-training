@@ -176,25 +176,25 @@ def _finalize_node(state: WorkflowState) -> WorkflowState:
 
 def _build_workflow():
     graph = StateGraph(WorkflowState)
-    graph.add_node("retrieve", _retrieve_node)
-    graph.add_node("analyze", _analysis_node)
-    graph.add_node("judge", _judge_node)
-    graph.add_node("corrective", _corrective_node)
-    graph.add_node("finalize", _finalize_node)
+    graph.add_node("retrieve_step", _retrieve_node)
+    graph.add_node("analyze_step", _analysis_node)
+    graph.add_node("judge_step", _judge_node)
+    graph.add_node("corrective_step", _corrective_node)
+    graph.add_node("finalize_step", _finalize_node)
 
-    graph.set_entry_point("retrieve")
-    graph.add_edge("retrieve", "analyze")
-    graph.add_edge("analyze", "judge")
+    graph.set_entry_point("retrieve_step")
+    graph.add_edge("retrieve_step", "analyze_step")
+    graph.add_edge("analyze_step", "judge_step")
     graph.add_conditional_edges(
-        "judge",
+        "judge_step",
         _route_after_judge,
         {
-            "corrective": "corrective",
-            "finalize": "finalize",
+            "corrective": "corrective_step",
+            "finalize": "finalize_step",
         },
     )
-    graph.add_edge("corrective", "analyze")
-    graph.add_edge("finalize", END)
+    graph.add_edge("corrective_step", "analyze_step")
+    graph.add_edge("finalize_step", END)
 
     return graph.compile()
 
