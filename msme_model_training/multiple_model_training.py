@@ -677,7 +677,7 @@ def compute_health_card(applicant):
     return scores, overall
 
 
-# scores, overall = compute_health_card(new_applicant)
+scores, overall = compute_health_card(new_applicant)
 
 # print(f"\n  📊 MSME FINANCIAL HEALTH CARD")
 # print(f"  {'─'*40}")

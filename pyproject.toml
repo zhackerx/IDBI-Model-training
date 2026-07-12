@@ -7,4 +7,4 @@ name = "msme-loan-api"
 version = "0.1.0"
 
 [tool.vercel]
-entrypoint = "msme_loan_api/app:app"
+entrypoint = "msme_loan_api.app:app"

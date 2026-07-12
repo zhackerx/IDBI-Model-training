@@ -12,10 +12,89 @@ Copy these into the model/ directory:
 - model_metadata.pkl
 
 ### 3. Run the API
-python main.py
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ### 4. Open Swagger UI
 http://localhost:8000/docs
+
+### 5. Open Frontend Dashboard
+http://localhost:8000/dashboard
+
+---
+
+## New Agentic RAG Endpoints (MVP)
+
+- POST /rag/policies/reload
+- POST /rag/analyze  (multipart/form-data with PDF file)
+- GET  /rag/health
+
+The RAG flow uses:
+- PDF parsing (PyMuPDF)
+- Chunking + local TF-IDF retrieval
+- LangGraph workflow orchestration
+- Corrective retrieval retry
+- Analysis Agent + Judge Agent
+
+### Vector DB Mode (Chroma)
+
+By default, retrieval uses local TF-IDF (no external setup required).
+
+To enable Chroma vector DB retrieval:
+
+1. Install dependencies from requirements.txt (includes chromadb)
+2. Start API with env vars:
+
+Windows PowerShell:
+
+```powershell
+$env:RAG_BACKEND="chroma"
+$env:CHROMA_PERSIST_DIR="./chroma_db"
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+macOS/Linux:
+
+```bash
+export RAG_BACKEND=chroma
+export CHROMA_PERSIST_DIR=./chroma_db
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Check active retrieval backend:
+
+- GET /rag/health  -> retrieval_backend field
+
+### Sample PDFs For Judge Demo
+
+The repository includes three sample applicant PDFs:
+
+- uploads/sample_applicant_test.pdf
+- uploads/sample_applicant_low_risk.pdf
+- uploads/sample_applicant_high_risk.pdf
+
+These help demonstrate decision variation quickly in /rag/analyze and dashboard flows.
+
+### Quick Endpoint Smoke Tests
+
+Run this while API is running:
+
+```bash
+python tests/smoke_test_endpoints.py --base-url http://localhost:8000
+```
+
+Checked endpoints:
+
+- /health
+- /rag/health
+- /rag/policies/reload
+- /rag/analyze
+- /predict
+
+Optional JSON report:
+
+```bash
+python tests/smoke_test_endpoints.py --base-url http://localhost:8000 --out smoke_report.json
+```
 
 
 Here's a clean, complete API Input Reference document for your frontend team:

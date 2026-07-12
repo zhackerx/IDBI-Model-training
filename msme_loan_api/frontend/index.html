@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MSME Credit Assessment Dashboard</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <style>
+    :root {
+      --ink: #0f1b2a;
+      --bg-a: #f7f9fc;
+      --bg-b: #dfe8f4;
+      --panel: #ffffff;
+      --brand: #005f86;
+      --brand-2: #0d8f77;
+      --warn: #b7791f;
+      --bad: #b42318;
+      --good: #067647;
+      --muted: #667085;
+      --ring: rgba(0, 95, 134, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 20% 0%, var(--bg-b), var(--bg-a) 45%);
+      min-height: 100vh;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      background: linear-gradient(180deg, #063f5f, #062b42);
+      color: #ecf3fb;
+      padding: 24px;
+    }
+
+    .brand {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      margin-bottom: 16px;
+    }
+
+    .hint { color: #c9d9eb; font-size: 0.9rem; line-height: 1.45; }
+
+    .main { padding: 24px; }
+
+    .card {
+      background: var(--panel);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px var(--ring);
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+    input[type="file"] {
+      border: 1px solid #d0d5dd;
+      border-radius: 10px;
+      padding: 9px;
+      background: white;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--brand);
+    }
+
+    button.secondary { background: var(--brand-2); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .approve { background: #ecfdf3; color: var(--good); }
+    .conditional { background: #fffaeb; color: var(--warn); }
+    .reject { background: #fef3f2; color: var(--bad); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid #e4e7ec;
+      border-radius: 12px;
+      padding: 12px;
+      background: #fcfdff;
+    }
+
+    .metric .label { color: var(--muted); font-size: 0.82rem; }
+    .metric .value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; }
+
+    .section {
+      border-top: 1px solid #eaecf0;
+      padding-top: 10px;
+      margin-top: 10px;
+    }
+
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { padding: 18px; }
+      .main { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const e = React.createElement;
+
+    function badgeClass(decision) {
+      if (!decision) return "pill";
+      if (decision.toLowerCase().includes("approve") && !decision.toLowerCase().includes("conditional")) return "pill approve";
+      if (decision.toLowerCase().includes("conditional")) return "pill conditional";
+      return "pill reject";
+    }
+
+    function App() {
+      const [file, setFile] = React.useState(null);
+      const [result, setResult] = React.useState(null);
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState("");
+
+      async function reloadPolicies() {
+        setBusy(true);
+        setError("");
+        try {
+          const res = await fetch('/rag/policies/reload', { method: 'POST' });
+          if (!res.ok) throw new Error('Policy reload failed');
+          const data = await res.json();
+          alert('Policies loaded: ' + data.policy_chunks + ' chunks');
+        } catch (err) {
+          setError(err.message || 'Failed to reload policy index');
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function analyze() {
+        if (!file) {
+          setError('Please upload a PDF first.');
+          return;
+        }
+        setBusy(true);
+        setError('');
+        setResult(null);
+
+        const form = new FormData();
+        form.append('file', file);
+
+        try {
+          const res = await fetch('/rag/analyze', { method: 'POST', body: form });
+          if (!res.ok) {
+            const payload = await res.json();
+            throw new Error(payload.detail || 'Analysis failed');
+          }
+          const data = await res.json();
+          setResult(data);
+        } catch (err) {
+          setError(err.message || 'Failed to analyze document');
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      const decision = result?.decision || '';
+
+      return e('div', { className: 'layout' },
+        e('aside', { className: 'sidebar' },
+          e('div', { className: 'brand' }, 'IDBI MSME Agentic RAG'),
+          e('div', { className: 'hint' }, 'Upload applicant PDF, run corrective retrieval, evaluate through analysis + judge nodes, and get a recommendation with evidence.'),
+        ),
+        e('main', { className: 'main' },
+          e('div', { className: 'card' },
+            e('h2', null, 'Loan Assessment Dashboard'),
+            e('div', { className: 'row' },
+              e('input', {
+                type: 'file',
+                accept: 'application/pdf',
+                onChange: (ev) => setFile(ev.target.files?.[0] || null)
+              }),
+              e('button', { onClick: analyze, disabled: busy }, busy ? 'Analyzing...' : 'Analyze PDF'),
+              e('button', { className: 'secondary', onClick: reloadPolicies, disabled: busy }, 'Reload Policies')
+            ),
+            error ? e('p', { style: { color: '#b42318', marginTop: '10px' } }, error) : null,
+          ),
+
+          result ? e('div', { className: 'card' },
+            e('div', { className: 'row' },
+              e('span', { className: badgeClass(decision) }, decision),
+              e('span', { className: 'mono' }, 'confidence: ' + Math.round((result.confidence || 0) * 100) + '%')
+            ),
+            e('div', { className: 'grid', style: { marginTop: '12px' } },
+              e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Risk Score'), e('div', { className: 'value' }, String(result.risk_score || '-'))),
+              e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Pass Sections'), e('div', { className: 'value' }, String(result.summary?.pass_count ?? '-'))),
+              e('div', { className: 'metric' }, e('div', { className: 'label' }, 'Needs Review'), e('div', { className: 'value' }, String(result.summary?.needs_review_count ?? '-'))),
+              e('div', { className: 'metric' }, e('div', { className: 'label' }, 'High Risk'), e('div', { className: 'value' }, String(result.summary?.high_risk_count ?? '-')))
+            ),
+
+            e('div', { className: 'section' },
+              e('h3', null, 'Judge Output'),
+              e('pre', { className: 'mono', style: { whiteSpace: 'pre-wrap' } }, JSON.stringify(result.judge || {}, null, 2))
+            ),
+
+            e('div', { className: 'section' },
+              e('h3', null, 'Section Analysis'),
+              e('pre', { className: 'mono', style: { whiteSpace: 'pre-wrap' } }, JSON.stringify(result.sections || {}, null, 2))
+            ),
+
+            e('div', { className: 'section' },
+              e('h3', null, 'Top Evidence'),
+              e('pre', { className: 'mono', style: { whiteSpace: 'pre-wrap' } }, JSON.stringify(result.evidence || [], null, 2))
+            )
+          ) : null
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+  </script>
+</body>
+</html>

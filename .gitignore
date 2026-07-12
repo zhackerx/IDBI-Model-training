@@ -1,7 +1,8 @@
 venv/
 .venv/
+__pycache__/
+*.pyc
 
-msme_loan_api/
-    test.ipynb
-    Dockerfile
-    docker-compose.yml
+msme_loan_api/test.ipynb
+msme_loan_api/Dockerfile
+msme_loan_api/docker-compose.yml
