@@ -64,6 +64,38 @@ Check active retrieval backend:
 
 - GET /rag/health  -> retrieval_backend field
 
+### Sample PDFs For Judge Demo
+
+The repository includes three sample applicant PDFs:
+
+- uploads/sample_applicant_test.pdf
+- uploads/sample_applicant_low_risk.pdf
+- uploads/sample_applicant_high_risk.pdf
+
+These help demonstrate decision variation quickly in /rag/analyze and dashboard flows.
+
+### Quick Endpoint Smoke Tests
+
+Run this while API is running:
+
+```bash
+python tests/smoke_test_endpoints.py --base-url http://localhost:8000
+```
+
+Checked endpoints:
+
+- /health
+- /rag/health
+- /rag/policies/reload
+- /rag/analyze
+- /predict
+
+Optional JSON report:
+
+```bash
+python tests/smoke_test_endpoints.py --base-url http://localhost:8000 --out smoke_report.json
+```
+
 
 Here's a clean, complete API Input Reference document for your frontend team:
 
