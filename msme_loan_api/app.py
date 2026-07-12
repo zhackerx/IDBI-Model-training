@@ -39,6 +39,7 @@ from utils.health_card    import (
     compute_loan_offer
 )
 from graph.workflow import run_assessment_workflow, bootstrap_policy_index, get_retrieval_backend
+from rag.security import scan_pdf_upload
 
 # ============================================================
 # GLOBAL MODEL STORE
@@ -622,16 +623,21 @@ async def rag_reload_policies():
     description = "Uploads an applicant PDF, runs retrieval + analysis + judge workflow, and returns decision with evidence."
 )
 async def rag_analyze_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    content = await file.read()
+    upload_scan = scan_pdf_upload(file.filename, content)
+    if not upload_scan.accepted:
+        raise HTTPException(status_code=400, detail={"errors": upload_scan.errors})
 
     with NamedTemporaryFile(delete=False, suffix=".pdf", dir=str(UPLOADS_DIR)) as temp_file:
-        content = await file.read()
         temp_file.write(content)
         temp_path = Path(temp_file.name)
 
     try:
         result = run_assessment_workflow(temp_path)
+        result["upload_security"] = {
+            "status": "accepted",
+            "warnings": upload_scan.warnings,
+        }
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"RAG analysis failed: {str(e)}")

@@ -16,8 +16,14 @@ class Retriever(Protocol):
     def index_documents(self, documents: list[str], metadatas: list[dict]) -> int:
         ...
 
-    def search(self, query: str, top_k: int = 5) -> list[RetrievedChunk]:
+    def search(self, query: str, top_k: int = 5, metadata_filter: dict | None = None) -> list[RetrievedChunk]:
         ...
+
+
+def _metadata_matches(metadata: dict, metadata_filter: dict | None) -> bool:
+    if not metadata_filter:
+        return True
+    return all(metadata.get(key) == value for key, value in metadata_filter.items())
 
 
 class TfidfRetriever:
@@ -38,7 +44,7 @@ class TfidfRetriever:
         self.matrix = self.vectorizer.fit_transform(documents)
         return len(documents)
 
-    def search(self, query: str, top_k: int = 5) -> list[RetrievedChunk]:
+    def search(self, query: str, top_k: int = 5, metadata_filter: dict | None = None) -> list[RetrievedChunk]:
         if not self.documents or self.matrix is None:
             return []
 
@@ -47,7 +53,11 @@ class TfidfRetriever:
         if scores.size == 0:
             return []
 
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        allowed_indices = [
+            idx for idx, metadata in enumerate(self.metadatas)
+            if _metadata_matches(metadata, metadata_filter)
+        ]
+        top_indices = [idx for idx in np.argsort(scores)[::-1] if idx in allowed_indices][:top_k]
         results: list[RetrievedChunk] = []
 
         for idx in top_indices:

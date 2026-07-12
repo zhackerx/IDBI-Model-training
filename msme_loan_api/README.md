@@ -35,6 +35,19 @@ The RAG flow uses:
 - Corrective retrieval retry
 - Analysis Agent + Judge Agent
 
+### RAG Upload Security Controls
+
+Before an uploaded applicant PDF is used for real-time retrieval or analysis, the API now applies a pre-ingestion security gate:
+
+- Validates PDF extension, non-empty content, file size limit, and `%PDF` signature
+- Flags PDF JavaScript markers as upload security warnings
+- Redacts common PII before embedding or indexing, including PAN, GSTIN, email, phone, Aadhaar-like IDs, card/account-like numbers
+- Removes common indirect prompt-injection directives such as `ignore previous instructions`
+- Adds chunk-level security metadata, including `access_role`, `access_scope`, and `pii_state`
+- Applies metadata-filtered retrieval so only chunks authorized for the active RAG role are searched
+
+The current prototype role is `credit_officer`. In production, this should come from the authenticated user's RBAC/Entra ID claims and be enforced against a managed vector database in a private network.
+
 ### Vector DB Mode (Chroma)
 
 By default, retrieval uses local TF-IDF (no external setup required).

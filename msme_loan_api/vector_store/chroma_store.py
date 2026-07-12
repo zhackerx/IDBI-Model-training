@@ -37,12 +37,16 @@ class ChromaRetriever:
         )
         return len(documents)
 
-    def search(self, query: str, top_k: int = 5) -> list[RetrievedChunk]:
-        result = self._collection.query(
-            query_texts=[query],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+    def search(self, query: str, top_k: int = 5, metadata_filter: dict | None = None) -> list[RetrievedChunk]:
+        query_args = {
+            "query_texts": [query],
+            "n_results": top_k,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if metadata_filter:
+            query_args["where"] = metadata_filter
+
+        result = self._collection.query(**query_args)
 
         docs = result.get("documents", [[]])[0]
         metas = result.get("metadatas", [[]])[0]

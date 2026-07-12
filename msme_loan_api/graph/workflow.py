@@ -7,8 +7,9 @@ from langgraph.graph import END, StateGraph
 from agents.analysis_agent import analyze_sections
 from agents.judge_agent import judge_reasoning
 from rag.corrective_rag import corrective_retrieve
-from rag.parser import chunk_text, extract_text_from_pdf
+from rag.parser import chunk_text, extract_sanitized_text_from_pdf, extract_text_from_pdf
 from rag.retriever import RetrievedChunk, Retriever, TfidfRetriever
+from rag.security import ALLOWED_RAG_ROLE, sanitize_text_for_rag, secured_chunk_metadata
 from vector_store.chroma_store import ChromaRetriever
 
 
@@ -21,6 +22,7 @@ class WorkflowState(TypedDict, total=False):
     judge: dict
     retries: int
     corrective_diagnostics: dict
+    security_scan: dict
     final: dict
 
 
@@ -43,6 +45,7 @@ SECTION_TERMS = {
 
 RAG_BACKEND = os.getenv("RAG_BACKEND", "tfidf").strip().lower()
 CHROMA_DIR = Path(os.getenv("CHROMA_PERSIST_DIR", Path(__file__).resolve().parents[1] / "chroma_db"))
+ACCESS_FILTER = {"access_role": ALLOWED_RAG_ROLE}
 
 
 def _new_retriever(collection_name: str) -> Retriever:
@@ -110,27 +113,25 @@ def bootstrap_policy_index(policy_dir: Path) -> int:
         else:
             raw_text = path.read_text(encoding="utf-8", errors="ignore")
 
-        chunks = chunk_text(raw_text)
+        sanitized_text, _ = sanitize_text_for_rag(raw_text)
+        chunks = chunk_text(sanitized_text)
         for idx, ch in enumerate(chunks):
             docs.append(ch)
-            metas.append({"source": str(path.name), "type": "policy", "chunk_id": idx})
+            metas.append(secured_chunk_metadata(path.name, "policy", idx))
 
     return _policy_retriever.index_documents(docs, metas)
 
 
 def _retrieve_node(state: WorkflowState) -> WorkflowState:
     applicant_docs = state.get("applicant_chunks", [])
-    applicant_meta = [
-        {"source": "applicant_pdf", "type": "applicant", "chunk_id": idx}
-        for idx in range(len(applicant_docs))
-    ]
+    applicant_meta = [secured_chunk_metadata("applicant_pdf", "applicant", idx) for idx in range(len(applicant_docs))]
     applicant_retriever = _new_retriever("applicant_docs")
     applicant_retriever.index_documents(applicant_docs, applicant_meta)
 
     retrieved = {}
     for section, query in SECTION_QUERIES.items():
-        app_hits = applicant_retriever.search(query, top_k=6)
-        pol_hits = _policy_retriever.search(query, top_k=6)
+        app_hits = applicant_retriever.search(query, top_k=6, metadata_filter=ACCESS_FILTER)
+        pol_hits = _policy_retriever.search(query, top_k=6, metadata_filter=ACCESS_FILTER)
         retrieved[section] = _section_retrieval(section, app_hits, pol_hits)
 
     return {
@@ -154,8 +155,8 @@ def _corrective_node(state: WorkflowState) -> WorkflowState:
     retrieved = {}
     diagnostics = {}
     for section, query in SECTION_QUERIES.items():
-        app_hits, diag = corrective_retrieve(applicant_retriever, query, top_k=8)
-        pol_hits, _ = corrective_retrieve(_policy_retriever, query, top_k=6)
+        app_hits, diag = corrective_retrieve(applicant_retriever, query, top_k=8, metadata_filter=ACCESS_FILTER)
+        pol_hits, _ = corrective_retrieve(_policy_retriever, query, top_k=6, metadata_filter=ACCESS_FILTER)
         retrieved[section] = _section_retrieval(section, app_hits, pol_hits)
         diagnostics[section] = diag
 
@@ -215,6 +216,7 @@ def _finalize_node(state: WorkflowState) -> WorkflowState:
         "judge_gate_status": judge.get("gate_status", "UNKNOWN"),
         "evidence": evidence[:8],
         "corrective_diagnostics": state.get("corrective_diagnostics", {}),
+        "security_scan": state.get("security_scan", {}),
     }
 
     return {"final": final}
@@ -249,13 +251,14 @@ _workflow = _build_workflow()
 
 
 def run_assessment_workflow(pdf_path: Path) -> dict:
-    applicant_text = extract_text_from_pdf(pdf_path)
+    applicant_text, security_scan = extract_sanitized_text_from_pdf(pdf_path)
     applicant_chunks = chunk_text(applicant_text)
 
     state: WorkflowState = {
         "applicant_text": applicant_text,
         "applicant_chunks": applicant_chunks,
         "retries": 0,
+        "security_scan": security_scan,
     }
 
     result = _workflow.invoke(state)

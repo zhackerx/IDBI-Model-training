@@ -15,9 +15,10 @@ def corrective_retrieve(
     query: str,
     top_k: int = 6,
     min_score: float = 0.05,
+    metadata_filter: dict | None = None,
 ) -> tuple[list[RetrievedChunk], dict]:
     """Retry retrieval with query expansion when confidence is low."""
-    first_pass = retriever.search(query, top_k=top_k)
+    first_pass = retriever.search(query, top_k=top_k, metadata_filter=metadata_filter)
     top_score = first_pass[0].score if first_pass else 0.0
 
     diagnostics = {
@@ -33,7 +34,7 @@ def corrective_retrieve(
         if key in query.lower():
             expanded_query = f"{query} {expansion}"
 
-    second_pass = retriever.search(expanded_query, top_k=top_k)
+    second_pass = retriever.search(expanded_query, top_k=top_k, metadata_filter=metadata_filter)
     diagnostics["expanded"] = True
     diagnostics["expanded_query"] = expanded_query
     diagnostics["second_pass_top_score"] = second_pass[0].score if second_pass else 0.0
